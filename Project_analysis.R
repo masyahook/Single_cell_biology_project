@@ -2,6 +2,8 @@
 library(Seurat)
 library(dplyr)
 library(ggplot2)
+library(data.table)
+library(magrittr)
 
 # Reading the file
 raw_counts <- read.table(file='/Users/MaximKryukov/Documents/GitHub/Single_cell_biology_project/data/MOUSE_BRAIN_DATASET_2_COUNTS.tsv')
@@ -128,13 +130,27 @@ g2m_genes_present <- intersect(g2m_genes, all_genes)
 
 # Find markers for every cluster compared to all remaining cells, report only the positive ones
 mouse_data.markers <- FindAllMarkers(mouse_data, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25, test.use='t')
-de_genes <- data.frame(mouse_data.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC))
+de_genes <- data.frame(mouse_data.markers %>% group_by(cluster) %>% top_n(n = 15, wt = avg_logFC))
+de_genes <- de_genes[c('cluster', 'gene', 'p_val', 'p_val_adj', 'avg_logFC', 'pct.1', 'pct.2')]
 
 # Heatmap expression plot for variable genes for each cluster
-top10 <- mouse_data.markers  %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+top10 <- mouse_data.markers  %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC)
 DoHeatmap(mouse_data, features = top10$gene) + NoLegend()
 
-# Let us try to do the same but with Wilcoxon test
-mouse_data.markers_wilcoxon <- FindAllMarkers(mouse_data, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-de_genes_wilcoxon <- data.frame(mouse_data.markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_logFC))
+# Cluster annotation
+new.cluster.ids <- c("Microglia", "Cerebellum neurons", 
+                     "Vascular muscle cells", "Mature oligodendrocytes", 
+                     "Thalamus and\nhypothalamus\nexcitatory neurons", "Myelin forming oligodendrocytes", 
+                     "Sympathetic noradrenergic neurons", "Midbrain excitatory neurons", "Schwann cells")
+names(new.cluster.ids) <- levels(mouse_data)
+mouse_data <- RenameIdents(mouse_data, new.cluster.ids)
+DimPlot(mouse_data, reduction = "umap", label = TRUE, pt.size = 0.5, label.size=2.8) + NoLegend()
 
+# Get summarized statistics of the clusters
+md <- mouse_data@meta.data %>% as.data.table
+cluster_statistics <- md[, .(mean_nFeature = mean(nFeature_RNA, na.rm = TRUE), 
+                             median_nFeature = median(nFeature_RNA, na.rm = TRUE),
+                             mean_nCount = mean(nCount_RNA, na.rm = TRUE), 
+                             median_nCount = median(nCount_RNA, na.rm = TRUE)), by = seurat_clusters]
+num_cells <- md[, .N, by = "seurat_clusters"]
+cluster_statistics <- merge(cluster_statistics, num_cells, by='seurat_clusters')
